@@ -27,7 +27,7 @@ def append_nvcc_threads(nvcc_extra_args):
 arch = get_last_arch_torch()
 # [MP] make install more flexible here
 sm_num = arch[-2:]
-cc_flag = ['--generate-code=arch=compute_80,code=compute_80']
+cc_flag = ['--generate-code=arch=compute_52,code=compute_52']
 
 
 setup(
@@ -35,30 +35,31 @@ setup(
     ext_modules=[
         CUDAExtension('monarch_cuda', [
             'monarch.cpp',
-            'monarch_cuda/monarch_cuda_interface_fwd.cu',
-            'monarch_cuda/monarch_cuda_interface_fwd_complex.cu',
-            'monarch_cuda/monarch_cuda_interface_fwd_bf16.cu',
-            'monarch_cuda/monarch_cuda_interface_fwd_bf16_complex.cu',
-            'monarch_cuda/monarch_cuda_interface_fwd_r2r.cu',
-            'monarch_cuda/monarch_cuda_interface_fwd_r2r_bf16.cu',
-            'monarch_cuda/monarch_cuda_interface_bwd.cu',
-            'monarch_cuda/monarch_cuda_interface_bwd_complex.cu',
-            'monarch_cuda/monarch_cuda_interface_bwd_bf16.cu',
-            'monarch_cuda/monarch_cuda_interface_bwd_bf16_complex.cu',
-            'monarch_cuda/monarch_cuda_interface_bwd_r2r.cu',
-            'monarch_cuda/monarch_cuda_interface_bwd_r2r_bf16.cu',
-            'butterfly/butterfly_cuda.cu',
-            'butterfly/butterfly_padded_cuda.cu',
-            'butterfly/butterfly_padded_cuda_bf16.cu',
-            'butterfly/butterfly_ifft_cuda.cu',
-            'butterfly/butterfly_cuda_bf16.cu',
-            'butterfly/butterfly_ifft_cuda_bf16.cu',
-            'butterfly/butterfly_padded_ifft_cuda.cu',
-            'butterfly/butterfly_padded_ifft_cuda_bf16.cu',
-            'conv1d/conv1d_bhl.cu',
-            'conv1d/conv1d_blh.cu',
-            'conv1d/conv1d_bwd_cuda_bhl.cu',
-            'conv1d/conv1d_bwd_cuda_blh.cu',
+            # 'monarch_cuda/monarch_cuda_interface_fwd.cu',
+            # 'monarch_cuda/monarch_cuda_interface_fwd_complex.cu',
+            # 'monarch_cuda/monarch_cuda_interface_fwd_bf16.cu',
+            # 'monarch_cuda/monarch_cuda_interface_fwd_bf16_complex.cu',
+            # 'monarch_cuda/monarch_cuda_interface_fwd_r2r.cu',
+            # 'monarch_cuda/monarch_cuda_interface_fwd_r2r_bf16.cu',
+            # 'monarch_cuda/monarch_cuda_interface_bwd.cu',
+            # 'monarch_cuda/monarch_cuda_interface_bwd_complex.cu',
+            # 'monarch_cuda/monarch_cuda_interface_bwd_bf16.cu',
+            # 'monarch_cuda/monarch_cuda_interface_bwd_bf16_complex.cu',
+            # 'monarch_cuda/monarch_cuda_interface_bwd_r2r.cu',
+            # 'monarch_cuda/monarch_cuda_interface_bwd_r2r_bf16.cu',
+            # 'butterfly/butterfly_cuda.cu',
+            # 'butterfly/butterfly_padded_cuda.cu',
+            # 'butterfly/butterfly_padded_cuda_bf16.cu',
+            # 'butterfly/butterfly_ifft_cuda.cu',
+            # 'butterfly/butterfly_cuda_bf16.cu',
+            # 'butterfly/butterfly_ifft_cuda_bf16.cu',
+            # 'butterfly/butterfly_padded_ifft_cuda.cu',
+            # 'butterfly/butterfly_padded_ifft_cuda_bf16.cu',
+            # 'conv1d/conv1d_bhl.cu',
+            # 'conv1d/conv1d_blh.cu',
+            # 'conv1d/conv1d_bwd_cuda_bhl.cu',
+            # 'conv1d/conv1d_bwd_cuda_blh.cu',
+            'conv2d/conv2d_nchw.cu',
         ],
         extra_compile_args={'cxx': ['-O3'],
                              'nvcc': append_nvcc_threads(['-O3', '-lineinfo', '--use_fast_math', '-std=c++17'] + cc_flag)
