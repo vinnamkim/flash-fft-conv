@@ -10,7 +10,14 @@
     CHECK_CONTIGUOUS(x); \
     CHECK_IS_HALF_OR_BFLOAT_OR_FLOAT(x)
 
-torch::Tensor conv2d_cuda_nchw(
+torch::Tensor conv2d_cuda_nchw_fwd(
+    torch::Tensor input,
+    torch::Tensor weights,
+    // torch::Tensor bias,
+    uint padding);
+
+std::vector<torch::Tensor> conv2d_cuda_nchw_bwd(
+    torch::Tensor dout,
     torch::Tensor input,
     torch::Tensor weights,
     // torch::Tensor bias,
@@ -26,5 +33,20 @@ torch::Tensor conv2d_fwd(
     CHECK_INPUT(weights);
     CHECK_SAME_TYPE(input, weights);
 
-    return conv2d_cuda_nchw(input, weights, padding);
+    return conv2d_cuda_nchw_fwd(input, weights, padding);
+}
+
+std::vector<torch::Tensor> conv2d_bwd(
+    torch::Tensor dout,
+    torch::Tensor input,
+    torch::Tensor weights,
+    // torch::Tensor bias,
+    uint padding)
+{
+    CHECK_INPUT(dout);
+    CHECK_INPUT(input);
+    CHECK_INPUT(weights);
+    CHECK_SAME_TYPE(input, weights);
+
+    return conv2d_cuda_nchw_bwd(dout, input, weights, padding);
 }

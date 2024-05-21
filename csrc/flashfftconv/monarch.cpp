@@ -58,4 +58,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     // m.def("conv1d_forward", &conv1d_fwd, "conv1d forward (CUDA)");
     // m.def("conv1d_backward", &conv1d_bwd, "conv1d backward (CUDA)");
     m.def("conv2d_forward", &conv2d_fwd, "conv2d forward (CUDA)");
+    m.def("conv2d_backward", &conv2d_bwd, "conv2d backward (CUDA)");
 }

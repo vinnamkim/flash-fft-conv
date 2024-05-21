@@ -19,20 +19,20 @@ __forceinline__ __device__ uint __pos(
 }
 
 template <typename T, typename U, uint K>
-__global__ void conv2d_kernel(
+__global__ void conv2d_kernel_bwd(
+    const T *__restrict__ dout,
     const T *__restrict__ input,
     const U *__restrict__ weights,
     // const U *__restrict__ bias,
-    T *__restrict__ out,
+    T *__restrict__ din,
+    T *__restrict__ dweights,
     const uint padding,
     const uint N,
     const uint C,
     const uint H_IN,
     const uint W_IN,
     const uint H_OUT,
-    const uint W_OUT,
-    const uint R,
-    const uint S)
+    const uint W_OUT)
 {
     const uint H = (H_OUT + THREAD_TILE_SIZE_H - 1U) / THREAD_TILE_SIZE_H;
     const uint W = (W_OUT + THREAD_TILE_SIZE_W - 1U) / THREAD_TILE_SIZE_W;
@@ -51,9 +51,10 @@ __global__ void conv2d_kernel(
     const uint h_tile_idx = c_mod / W;
     const uint w_tile_idx = c_mod % W;
 
+    T dout_local[THREAD_TILE_SIZE_H + K - 1][THREAD_TILE_SIZE_W + K - 1] = {static_cast<T>(0)};
     T in_local[THREAD_TILE_SIZE_H + K - 1][THREAD_TILE_SIZE_W + K - 1] = {static_cast<T>(0)};
     T w_local[K][K];
-    T out_local[THREAD_TILE_SIZE_H][THREAD_TILE_SIZE_W];
+    T din_local[THREAD_TILE_SIZE_H][THREAD_TILE_SIZE_W];
 
 #pragma unroll
     for (uint r = 0; r < THREAD_TILE_SIZE_H + K - 1; r++)
@@ -61,11 +62,14 @@ __global__ void conv2d_kernel(
 #pragma unroll
         for (uint s = 0; s < THREAD_TILE_SIZE_W + K - 1; s++)
         {
-            const int h_in = h_tile_idx * THREAD_TILE_SIZE_H + r - (R / 2);
-            const int w_in = w_tile_idx * THREAD_TILE_SIZE_W + s - (S / 2);
+            const int h_in = h_tile_idx * THREAD_TILE_SIZE_H + r - (K / 2);
+            const int w_in = w_tile_idx * THREAD_TILE_SIZE_W + s - (K / 2);
 
             if (0 <= h_in && h_in < H_IN && 0 <= w_in && w_in < W_IN)
+            {
+                dout_local[r][s] = dout[__pos(n, c, h_in, w_in, N, C, H_IN, W_IN)];
                 in_local[r][s] = input[__pos(n, c, h_in, w_in, N, C, H_IN, W_IN)];
+            }
         }
     }
     // if (linear_idx == 0)
@@ -105,9 +109,9 @@ __global__ void conv2d_kernel(
                 for (int r = 0; r < K; r++)
 #pragma unroll
                     for (int s = 0; s < K; s++)
-                        accum += in_local[h_idx + r][w_idx + s] * w_local[r][s];
+                        accum += dout_local[h_idx + r][w_idx + s] * w_local[K - r - 1][K - s - 1];
 
-                out_local[h_idx][w_idx] = accum;
+                din_local[h_idx][w_idx] = accum;
             }
         }
 
@@ -121,12 +125,13 @@ __global__ void conv2d_kernel(
 
             if (h_out < H_OUT && w_out < W_OUT)
             {
-                out[__pos(n, c, h_out, w_out, N, C, H_OUT, W_OUT)] = out_local[h_idx][w_idx];
+                din[__pos(n, c, h_out, w_out, N, C, H_OUT, W_OUT)] = din_local[h_idx][w_idx];
             }
         }
 }
 
-torch::Tensor conv2d_cuda_nchw(
+std::vector<torch::Tensor> conv2d_cuda_nchw_bwd(
+    torch::Tensor dout,
     torch::Tensor input,
     torch::Tensor weights,
     // torch::Tensor bias,
@@ -136,6 +141,11 @@ torch::Tensor conv2d_cuda_nchw(
     const uint C = input.size(1);
     const uint H_IN = input.size(2);
     const uint W_IN = input.size(3);
+
+    TORCH_CHECK(N == dout.size(0), "");
+    TORCH_CHECK(C == dout.size(1), "");
+    TORCH_CHECK(H_IN == dout.size(2), "");
+    TORCH_CHECK(W_IN == dout.size(3), "");
 
     const uint c_weight = weights.size(0);
     const uint should_one = weights.size(1);
@@ -150,7 +160,8 @@ torch::Tensor conv2d_cuda_nchw(
     uint H_OUT = (H_IN + 2 * padding + 1 - R);
     uint W_OUT = (W_IN + 2 * padding + 1 - S);
 
-    torch::Tensor out = torch::empty({N, C, H_OUT, W_OUT}, input.options());
+    torch::Tensor din = torch::empty({N, C, H_IN, W_IN}, input.options());
+    torch::Tensor dweights = torch::empty({C, 1, R, S}, input.options());
 
     dim3 threadsPerBlock(BX, BY, BZ);
 
@@ -159,22 +170,22 @@ torch::Tensor conv2d_cuda_nchw(
     dim3 numBlocks(((N * C * H * W + BX - 1) / BX), 1, 1);
 
     DISPATCH_FLOAT_AND_HALF_AND_BF16(input.scalar_type(), weights.scalar_type(),
-                                     "depthwise conv2d_nchw fwd",
+                                     "depthwise conv2d_nchw bwd",
                                      ([&]
-                                      { conv2d_kernel<input_t, weight_t, 3U><<<numBlocks, threadsPerBlock>>>(
+                                      { conv2d_kernel_bwd<input_t, weight_t, 3U><<<numBlocks, threadsPerBlock>>>(
+                                            static_cast<input_t *>(dout.data_ptr()),
                                             static_cast<input_t *>(input.data_ptr()),
                                             static_cast<weight_t *>(weights.data_ptr()),
                                             // static_cast<weight_t *>(bias.data_ptr()),
-                                            static_cast<input_t *>(out.data_ptr()),
+                                            static_cast<input_t *>(din.data_ptr()),
+                                            static_cast<input_t *>(dweights.data_ptr()),
                                             padding,
                                             N,
                                             C,
                                             H_IN,
                                             W_IN,
                                             H_OUT,
-                                            W_OUT,
-                                            R,
-                                            S); }));
+                                            W_OUT); }));
 
-    return out;
+    return {din, dweights};
 }
