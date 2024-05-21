@@ -51,6 +51,9 @@ __global__ void conv2d_kernel_fwd(
     const uint h_tile_idx = c_mod / W;
     const uint w_tile_idx = c_mod % W;
 
+    if (n >= N || c >= C)
+        return;
+
     T in_local[THREAD_TILE_SIZE_H + K - 1][THREAD_TILE_SIZE_W + K - 1] = {static_cast<T>(0)};
     T w_local[K][K];
     T out_local[THREAD_TILE_SIZE_H][THREAD_TILE_SIZE_W];

@@ -51,10 +51,15 @@ __global__ void conv2d_kernel_bwd(
     const uint h_tile_idx = c_mod / W;
     const uint w_tile_idx = c_mod % W;
 
+    if (n >= N || c >= C)
+        return;
+
     T dout_local[THREAD_TILE_SIZE_H + K - 1][THREAD_TILE_SIZE_W + K - 1] = {static_cast<T>(0)};
     T in_local[THREAD_TILE_SIZE_H + K - 1][THREAD_TILE_SIZE_W + K - 1] = {static_cast<T>(0)};
     T w_local[K][K];
+
     T din_local[THREAD_TILE_SIZE_H][THREAD_TILE_SIZE_W];
+    T dw_local[K][K];
 
 #pragma unroll
     for (uint r = 0; r < THREAD_TILE_SIZE_H + K - 1; r++)
