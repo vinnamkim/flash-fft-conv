@@ -162,7 +162,7 @@ torch::Tensor conv2d_cuda_nchw_fwd(
     {
         DISPATCH_FLOAT_AND_HALF_AND_BF16(input.scalar_type(), weights.scalar_type(), "depthwise conv2d_nchw fwd",
                                          ([&]
-                                          { conv2d_kernel_fwd<input_t, weight_t, 3U><<<numBlocks, threadsPerBlock>>>(
+                                          { conv2d_kernel_fwd<input_t, weight_t, 5U><<<numBlocks, threadsPerBlock>>>(
                                                 static_cast<input_t *>(input.data_ptr()),
                                                 static_cast<weight_t *>(weights.data_ptr()),
                                                 // static_cast<weight_t *>(bias.data_ptr()),
