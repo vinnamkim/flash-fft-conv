@@ -9,7 +9,7 @@
 #include <vector>
 
 #define DISPATCH_FLOAT_AND_HALF_AND_BF16(INPUT_TYPE, WEIGHT_TYPE, NAME, ...)                                                       \
-  if ((INPUT_TYPE == at::ScalarType::Float) && (WEIGHT_TYPE == at::ScalarType::Float))                                        \
+  if ((INPUT_TYPE == at::ScalarType::Float) && (WEIGHT_TYPE == at::ScalarType::Float))                                             \
   {                                                                                                                                \
     using input_t = float;                                                                                                         \
     using weight_t = float;                                                                                                        \

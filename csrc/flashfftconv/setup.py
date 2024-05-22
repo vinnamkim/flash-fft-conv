@@ -27,7 +27,7 @@ def append_nvcc_threads(nvcc_extra_args):
 arch = get_last_arch_torch()
 # [MP] make install more flexible here
 sm_num = arch[-2:]
-cc_flag = ['--generate-code=arch=compute_52,code=compute_52']
+cc_flag = ['--generate-code=arch=compute_80,code=compute_80']
 
 
 setup(

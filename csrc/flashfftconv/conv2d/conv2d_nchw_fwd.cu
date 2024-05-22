@@ -24,32 +24,26 @@ __global__ void conv2d_kernel_fwd(
     const U *__restrict__ weights,
     // const U *__restrict__ bias,
     T *__restrict__ out,
-    const uint padding,
     const uint N,
     const uint C,
-    const uint H_IN,
-    const uint W_IN,
-    const uint H_OUT,
-    const uint W_OUT,
-    const uint R,
-    const uint S)
+    const uint H,
+    const uint W,
+    const uint NUM_TILE_H,
+    const uint NUM_TILE_W)
 {
-    const uint H = (H_OUT + THREAD_TILE_SIZE_H - 1U) / THREAD_TILE_SIZE_H;
-    const uint W = (W_OUT + THREAD_TILE_SIZE_W - 1U) / THREAD_TILE_SIZE_W;
-
     // linear_idx = n * C * H * W + c * H * W + h * W + w
     const uint linear_idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-    const uint n = linear_idx / (C * H * W);
+    const uint n = linear_idx / (C * NUM_TILE_H * NUM_TILE_W);
     // n_mod = c * H * W + h_out * W + w_out
-    const uint n_mod = linear_idx % (C * H * W);
+    const uint n_mod = linear_idx % (C * NUM_TILE_H * NUM_TILE_W);
 
-    const uint c = (n_mod) / (H * W);
+    const uint c = (n_mod) / (NUM_TILE_H * NUM_TILE_W);
     // c_mod = h * W + w_out
-    const uint c_mod = (n_mod) % (H * W);
+    const uint c_mod = (n_mod) % (NUM_TILE_H * NUM_TILE_W);
 
-    const uint h_tile_idx = c_mod / W;
-    const uint w_tile_idx = c_mod % W;
+    const uint h_tile_idx = c_mod / NUM_TILE_W;
+    const uint w_tile_idx = c_mod % NUM_TILE_W;
 
     if (n >= N || c >= C)
         return;
@@ -64,24 +58,13 @@ __global__ void conv2d_kernel_fwd(
 #pragma unroll
         for (uint s = 0; s < THREAD_TILE_SIZE_W + K - 1; s++)
         {
-            const int h_in = h_tile_idx * THREAD_TILE_SIZE_H + r - (R / 2);
-            const int w_in = w_tile_idx * THREAD_TILE_SIZE_W + s - (S / 2);
+            const int h_in = h_tile_idx * THREAD_TILE_SIZE_H + r - (K / 2);
+            const int w_in = w_tile_idx * THREAD_TILE_SIZE_W + s - (K / 2);
 
-            if (0 <= h_in && h_in < H_IN && 0 <= w_in && w_in < W_IN)
-                in_local[r][s] = input[__pos(n, c, h_in, w_in, N, C, H_IN, W_IN)];
+            if (0 <= h_in && h_in < H && 0 <= w_in && w_in < W)
+                in_local[r][s] = input[__pos(n, c, h_in, w_in, N, C, H, W)];
         }
     }
-    // if (linear_idx == 0)
-    // {
-    //     printf("in_local:\n");
-    //     for (uint r = 0; r < THREAD_TILE_SIZE_H + R - 1; r++)
-    //     {
-    //         for (uint s = 0; s < THREAD_TILE_SIZE_W + S - 1; s++)
-    //             printf("%.2f ", in_local[r][s]);
-
-    //         printf("\n");
-    //     }
-    // }
 
 #pragma unroll
     for (uint r = 0; r < K; r++)
@@ -100,7 +83,7 @@ __global__ void conv2d_kernel_fwd(
             const uint h_out = h_tile_idx * THREAD_TILE_SIZE_H + h_idx;
             const uint w_out = w_tile_idx * THREAD_TILE_SIZE_W + w_idx;
 
-            if (h_out < H_OUT && w_out < W_OUT)
+            if (h_out < H && w_out < W)
             {
                 T accum{static_cast<T>(0)};
 
@@ -122,9 +105,9 @@ __global__ void conv2d_kernel_fwd(
             const uint h_out = h_tile_idx * THREAD_TILE_SIZE_H + h_idx;
             const uint w_out = w_tile_idx * THREAD_TILE_SIZE_W + w_idx;
 
-            if (h_out < H_OUT && w_out < W_OUT)
+            if (h_out < H && w_out < W)
             {
-                out[__pos(n, c, h_out, w_out, N, C, H_OUT, W_OUT)] = out_local[h_idx][w_idx];
+                out[__pos(n, c, h_out, w_out, N, C, H, W)] = out_local[h_idx][w_idx];
             }
         }
 }
@@ -137,8 +120,8 @@ torch::Tensor conv2d_cuda_nchw_fwd(
 {
     const uint N = input.size(0);
     const uint C = input.size(1);
-    const uint H_IN = input.size(2);
-    const uint W_IN = input.size(3);
+    const uint H = input.size(2);
+    const uint W = input.size(3);
 
     const uint c_weight = weights.size(0);
     const uint should_one = weights.size(1);
@@ -149,35 +132,48 @@ torch::Tensor conv2d_cuda_nchw_fwd(
     TORCH_CHECK(should_one == 1, "weights.size[1] should be one");
     TORCH_CHECK(R == S, "Kernel size should be square");
     TORCH_CHECK(R % 2 == 1 && S % 2 == 1, "Kernel size should be odd number");
+    TORCH_CHECK(2 * padding + 1 == R, "Kernel size should be equal to 2 * padding + 1")
 
-    uint H_OUT = (H_IN + 2 * padding + 1 - R);
-    uint W_OUT = (W_IN + 2 * padding + 1 - S);
-
-    torch::Tensor out = torch::empty({N, C, H_OUT, W_OUT}, input.options());
+    torch::Tensor out = torch::empty({N, C, H, W}, input.options());
 
     dim3 threadsPerBlock(BX, BY, BZ);
 
-    const uint H = (H_OUT + THREAD_TILE_SIZE_H - 1U) / THREAD_TILE_SIZE_H;
-    const uint W = (W_OUT + THREAD_TILE_SIZE_W - 1U) / THREAD_TILE_SIZE_W;
-    dim3 numBlocks(((N * C * H * W + BX - 1) / BX), 1, 1);
+    const uint NUM_TILE_H = (H + THREAD_TILE_SIZE_H - 1U) / THREAD_TILE_SIZE_H;
+    const uint NUM_TILE_W = (W + THREAD_TILE_SIZE_W - 1U) / THREAD_TILE_SIZE_W;
+    dim3 numBlocks(((N * C * NUM_TILE_H * NUM_TILE_W + BX - 1) / BX), 1, 1);
 
-    DISPATCH_FLOAT_AND_HALF_AND_BF16(input.scalar_type(), weights.scalar_type(),
-                                     "depthwise conv2d_nchw fwd",
-                                     ([&]
-                                      { conv2d_kernel_fwd<input_t, weight_t, 3U><<<numBlocks, threadsPerBlock>>>(
-                                            static_cast<input_t *>(input.data_ptr()),
-                                            static_cast<weight_t *>(weights.data_ptr()),
-                                            // static_cast<weight_t *>(bias.data_ptr()),
-                                            static_cast<input_t *>(out.data_ptr()),
-                                            padding,
-                                            N,
-                                            C,
-                                            H_IN,
-                                            W_IN,
-                                            H_OUT,
-                                            W_OUT,
-                                            R,
-                                            S); }));
+    if (R == 3)
+    {
+        DISPATCH_FLOAT_AND_HALF_AND_BF16(input.scalar_type(), weights.scalar_type(), "depthwise conv2d_nchw fwd",
+                                         ([&]
+                                          { conv2d_kernel_fwd<input_t, weight_t, 3U><<<numBlocks, threadsPerBlock>>>(
+                                                static_cast<input_t *>(input.data_ptr()),
+                                                static_cast<weight_t *>(weights.data_ptr()),
+                                                // static_cast<weight_t *>(bias.data_ptr()),
+                                                static_cast<input_t *>(out.data_ptr()),
+                                                N,
+                                                C,
+                                                H,
+                                                W,
+                                                NUM_TILE_H,
+                                                NUM_TILE_W); }));
+    }
+    else if (R == 5)
+    {
+        DISPATCH_FLOAT_AND_HALF_AND_BF16(input.scalar_type(), weights.scalar_type(), "depthwise conv2d_nchw fwd",
+                                         ([&]
+                                          { conv2d_kernel_fwd<input_t, weight_t, 3U><<<numBlocks, threadsPerBlock>>>(
+                                                static_cast<input_t *>(input.data_ptr()),
+                                                static_cast<weight_t *>(weights.data_ptr()),
+                                                // static_cast<weight_t *>(bias.data_ptr()),
+                                                static_cast<input_t *>(out.data_ptr()),
+                                                N,
+                                                C,
+                                                H,
+                                                W,
+                                                NUM_TILE_H,
+                                                NUM_TILE_W); }));
+    }
 
     return out;
 }
